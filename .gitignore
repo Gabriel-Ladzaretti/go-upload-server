@@ -1,5 +1,2 @@
 .vscode
-mcli
-!mcli/
-msrv
-!msrv/
+usrv
