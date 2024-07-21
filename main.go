@@ -187,13 +187,14 @@ type Middleware func(h http.Handler) http.Handler
 func NewLoggingMiddleware(logger *log.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func() {
+			defer func(start time.Time) {
+				elapsed := time.Since(start)
 				requestID, ok := r.Context().Value(requestIDKey).(string)
 				if !ok {
 					requestID = "unknown"
 				}
-				logger.Println(requestID, r.Method, r.URL.Path, r.RemoteAddr, r.UserAgent())
-			}()
+				logger.Println(requestID, r.Method, r.URL.Path, elapsed, r.RemoteAddr, r.UserAgent())
+			}(time.Now())
 
 			next.ServeHTTP(w, r)
 		})
