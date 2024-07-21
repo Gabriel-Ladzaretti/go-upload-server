@@ -201,10 +201,13 @@ func NewLoggingMiddleware(logger *log.Logger) Middleware {
 	}
 }
 
+// RequestIDFunc is a function type for generating unique request IDs,
+// used in the tracing middleware [NewTracingMiddleware].
 type RequestIDFunc func() string
 
-// generateRequestID generates a unique request ID based on the current time.
-func generateRequestID() string {
+// defaultRequestIDFunc generates a unique request ID based on the current time.
+// It is the default [RequestIDFunc] used if none is provided for the tracing middleware.
+func defaultRequestIDFunc() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
@@ -219,7 +222,7 @@ func NewTracingMiddleware(requestIDFunc RequestIDFunc) Middleware {
 				if requestIDFunc != nil {
 					requestID = requestIDFunc()
 				} else {
-					requestID = generateRequestID()
+					requestID = defaultRequestIDFunc()
 				}
 			}
 
