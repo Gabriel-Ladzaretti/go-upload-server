@@ -69,6 +69,7 @@ type Config struct {
 	dir             string        // dir is the directory where files are saved.
 	listenAddr      string        // listenAddr on which the server listens.
 	formUploadField string        // formUploadField is the name of the form field used for file uploads.
+	uploadEndpoint  string        // uploadEndpoint is the path the to file upload endpoint.
 	maxInMemorySize int64         // maxInMemorySize bytes of the file parts are stored in memory, with the remainder stored on disk in temporary files.
 	readTimeout     time.Duration // readTimeout is the timeout value for reading the request
 	writeTimeout    time.Duration // writeTimeout is the timeout value for writing the response
@@ -77,8 +78,10 @@ type Config struct {
 
 // String returns a formatted string of the configuration fields.
 func (c Config) String() string {
-	return fmt.Sprintf("Config{dir: %s, listenAddr: %s, formUploadField: %s, maxInMemorySize: %dB, readTimeout: %v, writeTimeout: %v, idleTimeout: %v}",
-		c.dir, c.listenAddr, c.formUploadField, c.maxInMemorySize, c.readTimeout, c.writeTimeout, c.idleTimeout)
+	return fmt.Sprintf(
+		"Config{dir: %s, listenAddr: %s, formUploadField: %s, uploadEndpoint: %s, maxInMemorySize: %dB, readTimeout: %v, writeTimeout: %v, idleTimeout: %v}",
+		c.dir, c.listenAddr, c.formUploadField, c.uploadEndpoint, c.maxInMemorySize, c.readTimeout, c.writeTimeout, c.idleTimeout,
+	)
 }
 
 // newConfig parses command-line flags and returns a Config instance.
@@ -88,6 +91,7 @@ func newConfig() Config {
 	flag.StringVar(&c.dir, "dir", "/tmp", "A path to the directory where files are saved to (default: '/tmp').")
 	flag.StringVar(&c.listenAddr, "listen-addr", ":3000", "Address for the server to listen on, in the form 'host:port'. (default: ':3000').")
 	flag.StringVar(&c.formUploadField, "form-field", "upload", "The name of the form field used for file uploads (default: 'upload').")
+	flag.StringVar(&c.uploadEndpoint, "upload-endpoint", "/upload", "The path to the upload API endpoint (default: '/upload').")
 	flag.Int64Var(&c.maxInMemorySize, "max-size", 10, "The maximum memory size (in megabytes) for storing part files in memory (default: 10).")
 	flag.DurationVar(&c.readTimeout, "read-timeout", 15*time.Second, "Timeout for reading the request (default: '15s').")
 	flag.DurationVar(&c.writeTimeout, "write-timeout", 15*time.Second, "Timeout for writing the response (default: '15s').")
@@ -116,7 +120,7 @@ func newServer(logger *log.Logger, config Config, nextRequestID RequestIDFunc) h
 func addRoutes(mux *http.ServeMux, config Config) {
 	mux.Handle("/", http.NotFoundHandler())
 	mux.Handle("/healthz", healthz())
-	mux.Handle("/upload", upload(config.dir, config.formUploadField, config.maxInMemorySize))
+	mux.Handle(config.uploadEndpoint, upload(config.dir, config.formUploadField, config.maxInMemorySize))
 
 }
 
@@ -201,10 +205,13 @@ func NewLoggingMiddleware(logger *log.Logger) Middleware {
 	}
 }
 
+// RequestIDFunc is a function type for generating unique request IDs,
+// used in the tracing middleware [NewTracingMiddleware].
 type RequestIDFunc func() string
 
-// generateRequestID generates a unique request ID based on the current time.
-func generateRequestID() string {
+// defaultRequestIDFunc generates a unique request ID based on the current time.
+// It is the default [RequestIDFunc] used if none is provided for the tracing middleware.
+func defaultRequestIDFunc() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
 }
 
@@ -219,7 +226,7 @@ func NewTracingMiddleware(requestIDFunc RequestIDFunc) Middleware {
 				if requestIDFunc != nil {
 					requestID = requestIDFunc()
 				} else {
-					requestID = generateRequestID()
+					requestID = defaultRequestIDFunc()
 				}
 			}
 
