@@ -70,9 +70,9 @@ type Config struct {
 	listenAddr      string        // listenAddr on which the server listens.
 	formUploadField string        // formUploadField is the name of the form field used for file uploads.
 	maxInMemorySize int64         // maxInMemorySize bytes of the file parts are stored in memory, with the remainder stored on disk in temporary files.
-	readTimeout     time.Duration // Timeout for reading the request.
-	writeTimeout    time.Duration // Timeout for writing the response.
-	idleTimeout     time.Duration // Timeout for keeping idle connections.
+	readTimeout     time.Duration // readTimeout is the timeout value for reading the request
+	writeTimeout    time.Duration // writeTimeout is the timeout value for writing the response
+	idleTimeout     time.Duration // idleTimeout is the timeout for keeping idle connections
 }
 
 // String returns a formatted string of the configuration fields.
