@@ -2,7 +2,12 @@
 
 A simple file upload server written in Go.
 
-## Setup
+## **Setup**func (c Config) String() string {
+	return fmt.Sprintf(
+		"Config{dir: %s, listenAddr: %s, formUploadField: %s, uploadEndpoint: %s, maxInMemorySize: %dB, readTimeout: %v, writeTimeout: %v, idleTimeout: %v}",
+		c.dir, c.listenAddr, c.formUploadField, c.uploadEndpoint, c.maxInMemorySize, c.readTimeout, c.writeTimeout, c.idleTimeout,
+	)
+}
 
 ### Build
  
@@ -26,6 +31,7 @@ $ ./usrv
     -dir: Directory where files are saved (default: /tmp).
     -listen-addr: Address for the server to listen on, in the form "host:port". (default: :3000).
     -form-field: Form field name for file uploads (default: upload).
+    -upload-endpoint: The path to the upload API endpoint (default: '/upload').
     -max-size: The maximum memory size (in megabytes) for storing part files in memory (default: 10).
     -read-timeout: Timeout for reading the request (default: 15s).
     -write-timeout: Timeout for writing the response (default: 15s).
