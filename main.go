@@ -76,7 +76,6 @@ type Config struct {
 	idleTimeout     time.Duration // idleTimeout is the timeout for keeping idle connections
 }
 
-// String returns a formatted string of the configuration fields.
 func (c Config) String() string {
 	return fmt.Sprintf(
 		"Config{dir: %s, listenAddr: %s, formUploadField: %s, uploadEndpoint: %s, maxInMemorySize: %dB, readTimeout: %v, writeTimeout: %v, idleTimeout: %v}",
