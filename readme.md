@@ -2,14 +2,7 @@
 
 A simple file upload server written in Go.
 
-## **Setup**func (c Config) String() string {
-	return fmt.S printf(
-		"Config{dir: %s, listenAddr: %s, formUploadField: %s, uploadEndpoint: %s, maxInMemorySize: %dB, readTimeout: %v, writeTimeout: %v, idleTimeout: %v}",
-		c.dir, c.listenAddr, c.formUploadField, c.uploadEndpoint, c.maxInMemorySize, c.readTimeout, c.writeTimeout, c.idleTimeout,
-	)
-}
-
-### Build
+## Build
  
 Use the provided `Makefile` to build both components:
 
