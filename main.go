@@ -14,33 +14,28 @@ import (
 	"time"
 )
 
-// key defines a type for context keys used in the application.
-type key int
-
 const (
-	requestIDKey key = 0 // requestIDKey is used to store the request ID in the context.
+	applicationName = "usrv" // applicationName is the cmd/binary name for logging purpose
 )
 
 var (
-	config  Config      // config holds the configuration settings for the application.
-	logger  *log.Logger // logger is the default logger used.
-	healthy int32       // healthy indicates the health status of the application.
+	config  ServerConfig
+	logger  *log.Logger
+	healthy atomic.Bool
 )
 
-// mustInitialize sets up the configuration and performs necessary checks.
-// Logs any errors and exits if encountered.
 func mustInitialize() {
-	logger = log.New(os.Stdout, "http: ", log.LstdFlags)
+	logger = log.New(os.Stdout, fmt.Sprintf("%s :", applicationName), log.LstdFlags)
 
-	config = newConfig()
+	parseConfig(&config)
 
-	fi, err := os.Stat(config.dir)
+	fi, err := os.Stat(config.saveDir)
 	if err != nil {
 		logger.Fatalf("Error checking configured directory: %v", err)
 	}
 
 	if !fi.IsDir() {
-		logger.Fatalf("Configured path is not a directory: %s", config.dir)
+		logger.Fatalf("Configured path is not a directory: %s", config.saveDir)
 	}
 }
 
@@ -64,49 +59,44 @@ func main() {
 	run(ctx, logger, httpServer)
 }
 
-// Config holds the configuration settings for the application.
-type Config struct {
-	dir             string        // dir is the directory where files are saved.
-	listenAddr      string        // listenAddr on which the server listens.
-	formUploadField string        // formUploadField is the name of the form field used for file uploads.
-	uploadEndpoint  string        // uploadEndpoint is the path the to file upload endpoint.
-	maxInMemorySize int64         // maxInMemorySize bytes of the file parts are stored in memory, with the remainder stored on disk in temporary files.
-	readTimeout     time.Duration // readTimeout is the timeout value for reading the request
-	writeTimeout    time.Duration // writeTimeout is the timeout value for writing the response
-	idleTimeout     time.Duration // idleTimeout is the timeout for keeping idle connections
+type ServerConfig struct {
+	saveDir      string        // saveDir is where files are saved.
+	listenAddr   string        // listenAddr on which the server listens.
+	formKey      string        // formKey is the name of the form field used for file uploads.
+	endpoint     string        // uploadEndpoint is the path the to file upload endpoint.
+	maxInMemory  int64         // maxInMemory is the maximum size to store in memory, the reminder is stored on disk.
+	readTimeout  time.Duration // readTimeout is the timeout value for reading the request
+	writeTimeout time.Duration // writeTimeout is the timeout value for writing the response
+	idleTimeout  time.Duration // idleTimeout is the timeout for keeping idle connections
 }
 
-func (c Config) String() string {
+func (c ServerConfig) String() string {
 	return fmt.Sprintf(
 		"Config{dir: %s, listenAddr: %s, formUploadField: %s, uploadEndpoint: %s, maxInMemorySize: %dB, readTimeout: %v, writeTimeout: %v, idleTimeout: %v}",
-		c.dir, c.listenAddr, c.formUploadField, c.uploadEndpoint, c.maxInMemorySize, c.readTimeout, c.writeTimeout, c.idleTimeout,
+		c.saveDir, c.listenAddr, c.formKey, c.endpoint, c.maxInMemory, c.readTimeout, c.writeTimeout, c.idleTimeout,
 	)
 }
 
-// newConfig parses command-line flags and returns a Config instance.
-func newConfig() Config {
-	c := Config{}
-
-	flag.StringVar(&c.dir, "dir", "/tmp", "A path to the directory where files are saved to (default: '/tmp').")
+func parseConfig(c *ServerConfig) {
+	flag.StringVar(&c.saveDir, "dir", "/tmp", "A path to the directory where files are saved to (default: '/tmp').")
 	flag.StringVar(&c.listenAddr, "listen-addr", ":3000", "Address for the server to listen on, in the form 'host:port'. (default: ':3000').")
-	flag.StringVar(&c.formUploadField, "form-field", "upload", "The name of the form field used for file uploads (default: 'upload').")
-	flag.StringVar(&c.uploadEndpoint, "upload-endpoint", "/upload", "The path to the upload API endpoint (default: '/upload').")
-	flag.Int64Var(&c.maxInMemorySize, "max-size", 10, "The maximum memory size (in megabytes) for storing part files in memory (default: 10).")
+	flag.StringVar(&c.formKey, "form-field", "upload", "The name of the form field used for file uploads (default: 'upload').")
+	flag.StringVar(&c.endpoint, "upload-endpoint", "/upload", "The path to the upload API endpoint (default: '/upload').")
 	flag.DurationVar(&c.readTimeout, "read-timeout", 15*time.Second, "Timeout for reading the request (default: '15s').")
 	flag.DurationVar(&c.writeTimeout, "write-timeout", 15*time.Second, "Timeout for writing the response (default: '15s').")
 	flag.DurationVar(&c.idleTimeout, "idle-timeout", 60*time.Second, "Timeout for keeping idle connections (default: '60s').")
+	flag.Int64Var(&c.maxInMemory, "max-size", 10, "The maximum memory size (Mib) for storing part files in memory (default: 10).")
 
 	flag.Parse()
 
-	c.maxInMemorySize <<= 20 // convert to MB
-
-	return c
+	c.maxInMemory <<= 20 // convert Mib to bytes
 }
 
-// newServer creates a new HTTP server with middleware.
-func newServer(logger *log.Logger, config Config, nextRequestID RequestIDFunc) http.Handler {
+func newServer(logger *log.Logger, config ServerConfig, nextRequestID RequestIDFunc) http.Handler {
 	mux := http.NewServeMux()
-	addRoutes(mux, config)
+	mux.Handle("/", http.NotFoundHandler())
+	mux.Handle("/healthz", healthz())
+	mux.Handle(config.endpoint, upload(config.saveDir, config.formKey, config.maxInMemory))
 
 	var handler http.Handler = mux
 	handler = NewLoggingMiddleware(logger)(handler)
@@ -115,19 +105,9 @@ func newServer(logger *log.Logger, config Config, nextRequestID RequestIDFunc) h
 	return handler
 }
 
-// addRoutes configures the routes for the HTTP server.
-func addRoutes(mux *http.ServeMux, config Config) {
-	mux.Handle("/", http.NotFoundHandler())
-	mux.Handle("/healthz", healthz())
-	mux.Handle(config.uploadEndpoint, upload(config.dir, config.formUploadField, config.maxInMemorySize))
-
-}
-
-// healthz returns an HTTP handler that checks the health status of the application.
-// It responds with 200 OK if the application is healthy, and 503 Service Unavailable otherwise.
 func healthz() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if atomic.LoadInt32(&healthy) == 1 {
+		if healthy.Load() {
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -135,22 +115,22 @@ func healthz() http.Handler {
 	})
 }
 
-// upload handles file uploads from multipart forms.
-func upload(baseDir, formFileFieldName string, maxFileSize int64) http.Handler {
+// upload handles multiform file uploads.
+func upload(baseDir string, formKey string, maxMemorySize int64) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
 
-		err := r.ParseMultipartForm(maxFileSize)
+		err := r.ParseMultipartForm(maxMemorySize)
 		if err != nil {
 			logger.Printf("Error parsing multipart form: %v", err)
 			http.Error(w, "Could not parse multipart form", http.StatusBadRequest)
 			return
 		}
 
-		file, handler, err := r.FormFile(formFileFieldName)
+		file, handler, err := r.FormFile(formKey)
 		if err != nil {
 			logger.Printf("Error retrieving file from form: %v", err)
 			http.Error(w, "Could not get file from form", http.StatusBadRequest)
@@ -181,27 +161,29 @@ func upload(baseDir, formFileFieldName string, maxFileSize int64) http.Handler {
 	})
 }
 
-// Middleware is a function that wraps [http.Handler]s
-// proving functionality before or/and after execution
-// of the h handler.
 type Middleware func(h http.Handler) http.Handler
 
 // NewLoggingMiddleware creates a middleware that logs HTTP requests.
 func NewLoggingMiddleware(logger *log.Logger) Middleware {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			defer func(start time.Time) {
-				elapsed := time.Since(start)
-				requestID, ok := r.Context().Value(requestIDKey).(string)
-				if !ok {
-					requestID = "unknown"
-				}
-				logger.Println(requestID, r.Method, r.URL.Path, elapsed, r.RemoteAddr, r.UserAgent())
-			}(time.Now())
-
+			defer logRequest(r, time.Now())
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+type RequestID int
+
+const currentRequest RequestID = 0
+
+func logRequest(r *http.Request, start time.Time) {
+	elapsed := time.Since(start)
+	requestID, ok := r.Context().Value(currentRequest).(string)
+	if !ok {
+		requestID = "unknown"
+	}
+	logger.Println(requestID, r.Method, r.URL.Path, elapsed, r.RemoteAddr, r.UserAgent())
 }
 
 // RequestIDFunc is a function type for generating unique request IDs,
@@ -229,7 +211,7 @@ func NewTracingMiddleware(requestIDFunc RequestIDFunc) Middleware {
 				}
 			}
 
-			ctx := context.WithValue(r.Context(), requestIDKey, requestID)
+			ctx := context.WithValue(r.Context(), currentRequest, requestID)
 			w.Header().Set("X-Request-Id", requestID)
 
 			next.ServeHTTP(w, r.WithContext(ctx))

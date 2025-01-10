@@ -1,5 +1,8 @@
 # go-upload-server
 
+>[!note]
+> This is an exercise in Go.
+
 A simple file upload server written in Go.
 
 ## Build
